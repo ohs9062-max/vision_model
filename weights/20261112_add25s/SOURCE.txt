@@ -1,0 +1,7 @@
+adopted_date: 2026-11-12
+postprocess_source: /home/hs/rang/vision_model/weights/20261112_ign75/postprocess.yaml
+postprocess_source_md5: 749efb45ab661d02f8a509adc18e7867
+seg_source: /home/hs/rang/robot_vision3_autolabel/outputs/checkpoints/student_20261112_add25s/seg.pt
+seg_md5: acf5fb4e9fbfa90030fff7c6f2665f3f
+det_source: /home/hs/rang/robot_vision3_autolabel/outputs/checkpoints/student_20261112_add25s/det.pt
+det_md5: ec9a71448ae8bd8861ecc5611866efed

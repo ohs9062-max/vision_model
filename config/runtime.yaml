@@ -1,0 +1,56 @@
+# 판단값은 모두 임시값, 현장 조정 필요. 로봇 제동·시야 사양 확정 후 검증한다.
+source:
+  type: v4l2
+  uri: /dev/video0
+  width: 1280
+  height: 720
+  fps: 30
+  rotate: 0
+  speed: 1.0
+  latest_only: true
+  timeout_s: 3.0
+  backoff_s: 0.5
+  backoff_max_s: 8.0
+  limit: 0
+  csi_sensor: 0
+  topic: /camera/image_raw
+backend:
+  type: torch
+  device: cuda
+  provider: CPUExecutionProvider
+  version: null
+  threads: 4
+  decode_threshold: 0.10
+decision:
+  # ROS2 출력은 현장 정책 검증 전 STOP/policy_unvalidated로 제한한다.
+  policy_validated: false
+  roi: [[0.35, 0.55], [0.65, 0.55], [0.95, 1.0], [0.05, 1.0]]
+  non_drivable_stop: 0.30
+  caution_slow: 0.20
+  obstacle_bottom_margin: 0.20
+  stable_frames: 3
+  stop_frames: 2
+  go_frames: 8
+  segmentation_classes: [drivable, caution, non_drivable]
+  box_classes: [step, ditch_hole, puddle, obstacle]
+  obstacle_class: obstacle
+  slow_classes: [step, ditch_hole, puddle]
+stabilizer:
+  enabled: true
+  iou_threshold: 0.3
+  center_distance: 0.5
+  confirm_n: 3
+  confirm_m: 2
+  hold_frames: 2
+  vote_frames: 5
+  switch_frames: 3
+sinks:
+  json: {enabled: true, path: outputs/runtime/results.jsonl}
+  udp: {enabled: false, host: 127.0.0.1, port: 5005}
+  video: {enabled: false, path: outputs/runtime/prediction.mp4, fps: 15, width: 1280}
+  display: {enabled: false, width: 1280, seek_seconds: [5, 30]}
+  ros2: {enabled: false, decision_topic: /vision/decision, mask_topic: /vision/mask, boxes_topic: /vision/boxes}
+monitor:
+  window: 30
+  log_every: 30
+  max_frames: 0

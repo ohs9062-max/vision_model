@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=영상 추론 재생
+Exec=/home/hs/rang/vision_model/영상재생.sh
+Path=/home/hs/rang/vision_model
+Terminal=false

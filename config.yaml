@@ -1,0 +1,76 @@
+seg:
+  task: segmentation
+  model_variant: cspnext_seg
+  num_classes: 3
+  pretrained: false
+  dataset: /home/hs/rang/robot_vision3_autolabel/outputs/runs/student_deploy_20261019/v12_seg_20261023/gt_snapshot/root
+  split: /home/hs/rang/robot_vision3_autolabel/outputs/runs/student_deploy_20261019/v13_train_20261023/splits/split_v13.json
+  sequence_audit: "/home/hs/\uB2E4\uC6B4\uB85C\uB4DC/\uC0DD\uC131\uBB3C/\uBAA8\uB378\
+    /student_B_long_20261015/sequence_audit.json"
+  train_key: train
+  val_key: dev
+  base_weight: 1.0
+  input_size:
+  - 288
+  - 512
+  batch_size: 2
+  accumulation_steps: 4
+  epochs: 30
+  learning_rate: 0.0003
+  optimizer: AdamW
+  weight_decay: 0.0005
+  scheduler: cosine
+  min_learning_rate: 1.0e-05
+  augmentation: weather_v1
+  class_weight_power: 0.5
+  seed: 42
+  amp: true
+  workers: 2
+  output: /home/hs/rang/robot_vision3_autolabel/outputs/runs/student_deploy_20261019/aug_weather_20261023/runs/seg_weather
+  require_metadata: false
+  frame_weights: /home/hs/rang/robot_vision3_autolabel/outputs/runs/student_deploy_20261019/v13_train_20261023/splits/frame_weights_064x5.json
+  schedule_epochs: 30
+  warmup_epochs: 1
+  schedule_kind: linear_warmup_cosine
+det:
+  task: detection
+  model_variant: l
+  num_classes: 4
+  pretrained: false
+  dataset: /home/hs/rang/robot_vision3_autolabel/outputs/runs/student_deploy_20261019/v13_train_20261023/det_cp_root
+  split: /home/hs/rang/robot_vision3_autolabel/data/splits/split_v13.json
+  sequence_audit: /home/hs/rang/robot_vision3_autolabel/outputs/runs/student_deploy_20261019/h1_human/sequence_audit.json
+  train_key: train
+  val_key: dev
+  base_weight: 1.0
+  input_size:
+  - 640
+  - 640
+  batch_size: 2
+  accumulation_steps: 2
+  epochs: 12
+  learning_rate: 7.5e-05
+  optimizer: AdamW
+  weight_decay: 0.05
+  scheduler: cosine
+  min_learning_rate: 1.0e-05
+  augmentation: strong_v1
+  class_aware_sampling: true
+  eval_threshold: 0.001
+  seed: 42
+  amp: true
+  workers: 2
+  output: /home/hs/rang/robot_vision3_autolabel/outputs/runs/student_deploy_20261019/weather_far_20261026/runs/det
+  require_metadata: false
+  frame_weights: /home/hs/rang/robot_vision3_autolabel/experiments/weather_far_20261026/splits/frame_weights_far_obstacle_x3.json
+  schedule_epochs: 12
+  warmup_epochs: 1
+  schedule_kind: linear_warmup_cosine
+deployment:
+  torch_cuda_amp: true
+  hard_cls_training: true
+  hard_cls_inference_effect: false
+  onnx_opset: 17
+  det_nms_iou: 0.65
+  max_detections: 300
+active_model: 20261113_s50

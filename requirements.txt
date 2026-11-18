@@ -1,0 +1,9 @@
+numpy
+opencv-python
+PyYAML
+# Use NVIDIA's JetPack-compatible torch/torchvision wheels on Jetson.
+torch
+torchvision
+onnx
+onnxruntime
+# For CUDA ONNX inference replace onnxruntime with matching onnxruntime-gpu.

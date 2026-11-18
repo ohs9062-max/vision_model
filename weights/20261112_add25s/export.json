@@ -1,0 +1,46 @@
+{
+  "seg": {
+    "input": [
+      1,
+      3,
+      576,
+      1024
+    ],
+    "outputs": {
+      "logits": [
+        1,
+        3,
+        576,
+        1024
+      ]
+    },
+    "bytes": 107904020,
+    "checker": "passed"
+  },
+  "det": {
+    "input": [
+      1,
+      3,
+      960,
+      960
+    ],
+    "outputs": {
+      "logits": [
+        1,
+        18900,
+        4
+      ],
+      "distances": [
+        1,
+        18900,
+        4
+      ],
+      "priors": [
+        18900,
+        3
+      ]
+    },
+    "bytes": 228044500,
+    "checker": "passed"
+  }
+}
