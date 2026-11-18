@@ -424,3 +424,13 @@ EOF 별도 시험은 기존 demo_video.mp4의 249프레임을 모두 발행·수
 재실행 설정의 JSON/MP4 출력 경로는 `ros2_video_live_*`로 지정해 위 검증 증거를
 보존합니다. 검증 중인 3개 터미널은 같은 ROS domain을 사용해야 합니다.
 EOF와 Ctrl+C는 영상 발행기를 종료하지만, 비전 노드의 입력 timeout 보호는 계속 유지됩니다.
+
+## ViT-S 조언 (ADVICE, 11-18)
+
+버전 폴더 `postprocess.yaml`에 `ADVICE: {thresh: 0.9, scale: 1.1, classes: [0,1,2,3]}`가 있으면, 검출 박스마다 crop 분류기(DINOv2-small ViT-S, crop_verifier 채택 M_all)로 판정합니다. 분류기가 박스와 다른 클래스를 0.9 이상 확신하면 그 박스를 지웁니다. 클래스·점수는 바꾸지 않습니다. 없으면 기존과 같습니다. 런타임 설정 `backend.advice: false`로도 끌 수 있습니다.
+
+- 버전: `weights/20261118_s50vit` (seg·det는 20261113_s50과 같은 파일, ADVICE만 추가)
+- 파일: `advice.json`(전처리 상수·출처 md5), `advice.ts`(torch 백엔드, transformers 불필요), `advice.onnx`(onnx 백엔드), `advice.fp16.engine`(tensorrt, AGX에서 `bash tools/build_trt.sh`가 정적 배치 8로 생성)
+- 생성: PC에서 `python tools/export_advice.py --checkpoint <M_all.pt> --folder weights/<버전>` (transformers 필요)
+- PC 검증: 시험 226장에서 robot3 평가 구현과 남은 박스가 226/226장 같음(torch), onnx 20/20장 같음. 조언 단계 중앙 11ms·p95 16ms(4070 Ti). latency에 `advice` ms로 기록됩니다.
+- AGX: TensorRT 엔진의 정확도·속도는 아직 재지 않았습니다. torch 백엔드(`advice.ts`)는 AGX torch로도 실행됩니다.

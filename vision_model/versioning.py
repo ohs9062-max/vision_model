@@ -38,7 +38,7 @@ def version_dir(package, version):
 def validate_postprocess(config):
     optional = {"OBS_KEEP_RING", "OBS_KEEP_MIN_FRAC", "OBS_KEEP_CLASSES"}
     group = {"OBS_GROUP_CONTAIN", "OBS_GROUP_MIN_COUNT", "OBS_GROUP_AREA_RATIO"}
-    box_drop = {"DRIVABLE_BOX_DROP", "MERGE_RULE", "SEG_ENCLOSED_TO_NON", "BOX_RESCUE", "POST_SCALE"}  # 11-13 POST_SCALE 추가  # 선택 키(없으면 기존 동작)
+    box_drop = {"DRIVABLE_BOX_DROP", "MERGE_RULE", "SEG_ENCLOSED_TO_NON", "BOX_RESCUE", "POST_SCALE", "ADVICE"}  # 11-13 POST_SCALE, 11-18 ADVICE(ViT-S 조언) 추가  # 선택 키(없으면 기존 동작)
     if not isinstance(config, dict) or set(config) - box_drop not in (POST_KEYS, POST_KEYS | optional, POST_KEYS | group, POST_KEYS | optional | group):
         raise ValueError("Unsupported postprocess constant set")
     if not isinstance(config["POST_THRESH"], dict) or set(config["POST_THRESH"]) != {
@@ -118,6 +118,10 @@ def validate_postprocess(config):
         type(x) not in (int, float) or not math.isfinite(x) or x < 0 for x in numbers
     ):
         raise ValueError("Invalid postprocess numeric value")
+    if "ADVICE" in config:
+        from .advice import validate_advice
+
+        validate_advice(config["ADVICE"])
     bounded = numbers[:10] + [config["BOX_BIAS"]["min_score"]]
     if any(x > 1 for x in bounded):
         raise ValueError("Thresholds and normalized margins must be <= 1")

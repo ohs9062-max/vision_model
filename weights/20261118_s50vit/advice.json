@@ -1,0 +1,34 @@
+{
+  "size": 224,
+  "batch": 8,
+  "mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "std": [
+    0.229,
+    0.224,
+    0.225
+  ],
+  "fill": [
+    124,
+    116,
+    104
+  ],
+  "classes": [
+    "step",
+    "ditch_hole",
+    "puddle",
+    "obstacle"
+  ],
+  "source": "/home/hs/rang/crop_verifier/outputs/adopted_M_20261112/M_all.pt",
+  "source_md5": "42ee3ee8bc301d658cf6fa654c6e6617",
+  "export": {
+    "ts_batch1_maxdiff": 0.0,
+    "ts_batch3_maxdiff": 0.0,
+    "ts_batch8_maxdiff": 0.0,
+    "ts_batch13_maxdiff": 0.0,
+    "onnx_batch8_maxdiff": 6.67572021484375e-06
+  }
+}

@@ -16,4 +16,9 @@ PY
 for model in seg det; do
   "$TRTEXEC" --onnx="$FOLDER/$model.onnx" --saveEngine="$FOLDER/$model.fp16.engine" --fp16
 done
+# 11-18 ADVICE: ViT-S 조언 엔진(정적 배치 = advice.json batch)
+if [ -f "$FOLDER/advice.onnx" ]; then
+  B="$($PYTHON -c 'import json,sys;print(json.load(open(sys.argv[1]))["batch"])' "$FOLDER/advice.json")"
+  "$TRTEXEC" --onnx="$FOLDER/advice.onnx" --saveEngine="$FOLDER/advice.fp16.engine" --fp16 --shapes=images:${B}x3x224x224
+fi
 # Apply the version's NumPy decode/NMS/finish after network outputs.

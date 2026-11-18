@@ -290,6 +290,13 @@ class Backend:
             self.predictor.models["det"].conf_threshold = threshold
         else:
             self.predictor.decode_threshold = threshold
+        # 11-18 ADVICE: 버전 postprocess.yaml에 ADVICE가 있으면 ViT-S 조언(L2)을 검출 결과에 적용
+        self.advisor = None
+        advice = self.predictor.postprocessor.config.get("ADVICE")
+        if advice and config.get("advice", True):
+            from ..advice import Advisor
+
+            self.advisor = Advisor(self.predictor.version_dir, advice, kind)
 
     # 기존 함수 호출 사이만 측정해 추론·후처리 지연을 분리한다.
     def __call__(self, image):
@@ -310,11 +317,16 @@ class Backend:
                 p.postprocessor,
             )
         )
-        return result, dict(
-            inference=raw_ms, postprocess=(time.perf_counter() - t) * 1000
-        )
+        stages = dict(inference=raw_ms, postprocess=(time.perf_counter() - t) * 1000)
+        if self.advisor is not None:
+            t = time.perf_counter()
+            result["boxes"] = self.advisor.apply(image, result["boxes"])
+            stages["advice"] = (time.perf_counter() - t) * 1000
+        return result, stages
 
     # 백엔드가 소유한 명시적 자원을 해제한다.
     def close(self):
         if hasattr(self.predictor, "close"):
             self.predictor.close()
+        if getattr(self, "advisor", None) is not None:
+            self.advisor.close()

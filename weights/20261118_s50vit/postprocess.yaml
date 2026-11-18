@@ -1,0 +1,57 @@
+DET_THRESH: 0.25
+POST_THRESH:
+  0: 0.5
+  1: 0.5
+  2: 0.7
+  3: 0.3
+MERGE_CLASSES:
+- 0
+- 1
+MERGE_GAP: 0.01
+FAR_MARGIN: 0.02
+FAR_DROP_CLASSES:
+- 0
+- 1
+- 2
+OBS_DUP_IOU: 0.5
+OBS_DUP_CONTAIN: 0.7
+OBS_DUP_AREA_RATIO: 0.5
+BOX_BIAS:
+  obstacle_non: 3.0
+  hazard_caution: 2.0
+  min_score: 0.3
+OBS_KEEP_RING: 0.15
+OBS_KEEP_MIN_FRAC: 0.01
+OBS_KEEP_CLASSES:
+- 0
+DRIVABLE_BOX_DROP:
+  enabled: true
+  classes:
+  - 0
+  - 1
+  - 2
+  max_caution: 0.05
+  min_drivable: 0.5
+  class_rules:
+    2:
+      max_caution: 0.2
+      min_drivable: 0.3
+MERGE_RULE:
+  mode: greedy
+  gap: 0.0
+  fill: 0.5
+  cap: 0.25
+SEG_ENCLOSED_TO_NON:
+  ring: 0.8
+  max_drivable: 0.01
+BOX_RESCUE:
+  classes:
+  - 0
+  - 1
+  low: 0.1
+  min_caution: 0.1
+  gap: 0.01
+ADVICE:
+  thresh: 0.9
+  scale: 1.1
+  classes: [0, 1, 2, 3]
