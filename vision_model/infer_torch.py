@@ -51,10 +51,33 @@ class TorchPredictor:
             .to(self.device)
         )
 
+    # 11-18 PC 끊김: CUDA에서는 원본 uint8을 한 번만 올려 RGB·크기 조정·/255를 GPU에서 한다.
+    # cv2 INTER_LINEAR(축소 시 antialias 없음) 대신 bilinear(align_corners=False) 후 uint8처럼 반올림 — 값 차이 ±1/255 이내.
+    # 끄려면 VISION_GPU_PREPROCESS=0 (CPU 경로는 기존 tensor() 그대로).
+    def gpu_tensors(self, image):
+        import torch.nn.functional as F
+
+        g = torch.from_numpy(np.ascontiguousarray(image)).to(self.device)
+        g = g.flip(-1).permute(2, 0, 1).unsqueeze(0).float()
+        out = {}
+        for kind in ("seg", "det"):
+            h, w = self.config[kind]["input_size"]
+            r = g if tuple(g.shape[-2:]) == (h, w) else F.interpolate(g, size=(h, w), mode="bilinear", align_corners=False)
+            out[kind] = r.round().clamp(0, 255).div(255)
+        return out
+
+    def inputs(self, image):
+        import os
+
+        if self.device.type == "cuda" and os.environ.get("VISION_GPU_PREPROCESS", "1") != "0":
+            return self.gpu_tensors(image)
+        return {kind: self.tensor(image, kind) for kind in ("seg", "det")}
+
     # 모델 원출력을 공통 후처리에 전달할 확률과 검출 기록으로 바꾼다.
     @torch.inference_mode()
     def raw(self, image):
-        x = self.tensor(image, "seg")
+        xs = self.inputs(image)
+        x = xs["seg"]
         with torch.autocast(self.device.type, enabled=self.device.type == "cuda"):
             logits = self.models["seg"](x)
         if not torch.isfinite(logits).all():
@@ -65,7 +88,7 @@ class TorchPredictor:
         # 2) 세그 확률과 검출 기록 만들기
         probs = logits.float().softmax(1)[0].cpu().numpy()
         with torch.autocast(self.device.type, enabled=self.device.type == "cuda"):
-            record = self.models["det"](self.tensor(image, "det"))[0]
+            record = self.models["det"](xs["det"])[0]
         return probs, {k: v.cpu().numpy() for k, v in record.items()}
 
     # 추론 출력에 버전별 후처리를 적용해 박스와 마스크를 반환한다.
