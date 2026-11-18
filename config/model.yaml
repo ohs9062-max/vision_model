@@ -1,0 +1,11 @@
+# [AI 설정] 어떤 가중치로, 어떤 엔진에서 추론할지. 동작·판단 값은 config/runtime.yaml
+# 버전별 세부 후처리 임계값은 weights/<버전>/postprocess.yaml (모델과 함께 다님)
+active_model: 20261113_s50  # 사용할 가중치 버전 = weights/<이 이름>/
+backend:  # 추론 엔진(torch/onnx/tensorrt)·장치·검출 후보 하한·ViT 조언 켜기
+  type: torch  # torch/onnx/tensorrt; 운용값
+  device: cuda  # Torch 장치; 운용값
+  provider: CPUExecutionProvider  # ONNX 실행 공급자; 운용값
+  version: null  # 모델 버전명(null=활성 버전); 운용값
+  threads: 4  # Torch CPU 스레드 수 개; 임시값
+  decode_threshold: 0.10  # 검출 원시 후보 신뢰도 하한 비율(후처리 최저 임계 이하); 임시값
+  advice: true  # 버전 YAML ADVICE가 있으면 조언 모델 적용 여부; 운용값

@@ -1,3 +1,4 @@
+from .config import make_qos
 # 한 칸 버퍼와 재연결 스레드로 최신 카메라 프레임을 제공한다.
 import logging
 import json
@@ -113,9 +114,9 @@ class Source:
         self.last_received = time.perf_counter()
         self.capture, self.node, self.context, self.executor = None, None, None, None
         self.paths = sorted(p for p in Path(config['uri']).iterdir() if p.suffix.lower() in {'.jpg','.jpeg','.png','.bmp','.tif','.tiff'}) if config['type'] == 'dir' else []
-        if config.get('limit', 0):
+        if config['limit']:
             self.paths = self.paths[:config['limit']]
-        self.speed = float(config.get('speed', 1.0))
+        self.speed = float(config['speed'])
         self.paused = False
         self.skip_fraction = 0.0
         self.seek_target = None
@@ -170,13 +171,11 @@ class Source:
             import rclpy
             from rclpy.context import Context
             from rclpy.executors import SingleThreadedExecutor
-            from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
             from sensor_msgs.msg import Image
             self.context = Context()
             rclpy.init(context=self.context)
             self.node = rclpy.create_node('vision_input', context=self.context)
-            qos = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1,
-                             reliability=ReliabilityPolicy.BEST_EFFORT)
+            qos = make_qos(c['ros2_qos'])
             self.node.create_subscription(Image, c['topic'], self._ros_callback, qos)
             self.executor = SingleThreadedExecutor(context=self.context)
             self.executor.add_node(self.node)
@@ -184,7 +183,7 @@ class Source:
         uri = c['uri']
         api = cv2.CAP_ANY
         if kind == 'csi':
-            uri = (f"nvarguscamerasrc sensor-id={c['csi_sensor']} ! video/x-raw(memory:NVMM),width={c['width']},height={c['height']},framerate={int(c['fps'])}/1 ! nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false")
+            uri = (f"nvarguscamerasrc sensor-id={c['csi_sensor']} ! video/x-raw(memory:NVMM),width={c['width']},height={c['height']},framerate={int(c['fps'])}/1 ! nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers={c['buffer_size']} sync=false")
             api = cv2.CAP_GSTREAMER
         elif kind == 'v4l2':
             api = cv2.CAP_V4L2
@@ -203,7 +202,7 @@ class Source:
         if not self.capture.isOpened():
             raise OSError('cannot open ' + kind)
         if kind == 'v4l2':
-            for prop, value in ((cv2.CAP_PROP_FRAME_WIDTH,c['width']), (cv2.CAP_PROP_FRAME_HEIGHT,c['height']), (cv2.CAP_PROP_FPS,c['fps']), (cv2.CAP_PROP_BUFFERSIZE,1)):
+            for prop, value in ((cv2.CAP_PROP_FRAME_WIDTH,c['width']), (cv2.CAP_PROP_FRAME_HEIGHT,c['height']), (cv2.CAP_PROP_FPS,c['fps']), (cv2.CAP_PROP_BUFFERSIZE,c['buffer_size'])):
                 self.capture.set(prop, value)
 
     # 오류를 프레임과 별도 보관해 정지 이벤트가 덮어써지지 않게 한다.

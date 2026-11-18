@@ -14,15 +14,20 @@ from tkinter import filedialog, ttk
 import cv2
 import torch
 import yaml
+from .runtime.config import load_config, load_model_config
 
 ROOT = Path(__file__).resolve().parent.parent
 START_DIR = str(Path.home() / 'vision_videos') if (Path.home() / 'vision_videos').is_dir() else '/home/hs/다운로드/영상/과수원'
+
+def load_player_config():
+    return load_config(ROOT / 'config/runtime.yaml')
+
 
 def selected_backend():
     import platform
     if platform.machine() != 'aarch64':
         return 'torch'
-    config = yaml.safe_load((ROOT / 'config.yaml').read_text())
+    config = load_model_config(ROOT / 'config/model.yaml')
     version = ROOT / 'weights' / config['active_model']
     return 'tensorrt' if all((version / f'{kind}.fp16.engine').is_file() for kind in ('seg', 'det')) else 'torch'
 
@@ -181,7 +186,7 @@ class Player:
             if not self.path or not readable_video(self.path):
                 self.status.set('영상 파일을 열 수 없습니다.')
                 return
-            config = yaml.safe_load((ROOT / 'config/runtime.yaml').read_text())
+            config = load_player_config()
             config['sinks']['display']['enabled'] = True
             gpu = torch.cuda.is_available()
             if not gpu:
@@ -190,6 +195,10 @@ class Player:
             output.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.yaml', prefix='player_', dir=output, delete=False) as f:
                 self.config_path = Path(f.name)
+                model_path = self.config_path.with_suffix('.model.yaml')
+                model = dict(active_model=config['backend']['version'], backend=config.pop('backend'))
+                model_path.write_text(yaml.safe_dump(model, allow_unicode=True))
+                config['model_config'] = str(model_path)
                 yaml.safe_dump(config, f, allow_unicode=True)
             self.process = subprocess.Popen(make_command(self.path, self.rotate.get(), self.speed.get(), self.config_path), cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
             self.last_stderr = ''
@@ -211,6 +220,7 @@ class Player:
 
     def cleanup(self):
         if self.config_path is not None:
+            self.config_path.with_suffix('.model.yaml').unlink(missing_ok=True)
             self.config_path.unlink(missing_ok=True)
             self.config_path = None
 

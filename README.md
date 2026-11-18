@@ -6,7 +6,7 @@
 
 # Weatherfar 현재 학생 배포 패키지
 
-CSPNeXt-L 세그(288×512) + RTMDet-L 검출(640×640). 학습 저장소, mmdet/mmcv 없이 실행합니다. `weights/<active_model>/seg.pt`, `det.pt`는 원본 그대로 복사했으며 SHA256는 `weights/20261026_weatherfar/verify.json`에 있습니다. 버전별 모델 config는 `model_config.yaml`에 보존했습니다. 최상위 `config.yaml`의 `active_model`이 실행 버전을 선택합니다. 원본 .pt에는 optimizer 등 학습 상태도 포함되어 파일이 큽니다.
+CSPNeXt-L 세그(288×512) + RTMDet-L 검출(640×640). 학습 저장소, mmdet/mmcv 없이 실행합니다. `weights/<active_model>/seg.pt`, `det.pt`는 원본 그대로 복사했으며 SHA256는 `weights/20261026_weatherfar/verify.json`에 있습니다. 버전별 모델 config는 `model_config.yaml`에 보존했습니다. `config/model.yaml`의 `active_model`이 실행 버전을 선택합니다. 원본 .pt에는 optimizer 등 학습 상태도 포함되어 파일이 큽니다.
 
 ## Jetson AGX Orin 설치
 
@@ -113,7 +113,7 @@ python tools/verify_parity.py --version 20261026_weatherfar --images /frozen/roo
 1. 서버에서 `PYTHON=/path/to/python tools/update_from_checkpoint.sh 이름 /path/seg.pt /path/det.pt` 실행.
    서버 기본 Python은 `/home/hs/rang/X-AnyLabeling-Server/.venv/bin/python`입니다.
    오늘 날짜의 새 폴더를 만들고 복사→ONNX export/checker→고정 20장 검증을 수행합니다.
-   기존 이름은 덮어쓰지 않습니다. config.yaml은 자동 변경하지 않습니다.
+   기존 이름은 덮어쓰지 않습니다. config/model.yaml은 자동 변경하지 않습니다.
 2. `verify.json`의 `b.passed: true`와 `onnx_target_pass: true`, 20장 결과 및 SOURCE를 확인합니다. `a`는 참고 결과입니다.
    통과 기준은 기존 pack과 동일하게 클래스·개수 일치, 박스 좌표 차 **<1px**, 마스크 일치 **≥99.5%**입니다.
    원본 채택 PyTorch 참조 통과는 동일 체크포인트·후처리 복제에서만 승계됩니다.
@@ -123,7 +123,7 @@ python tools/verify_parity.py --version 20261026_weatherfar --images /frozen/roo
    이 버전 구조를 지원하는 패키지 코드도 함께 배포하십시오.
 4. AGX에서 `PYTHON=python3 bash tools/build_trt.sh /path/vision_model YYYYMMDD_이름` 실행.
    활성 버전 변경 전에 새 버전의 엔진을 생성합니다. TensorRT 정확도는 AGX에서 별도 검증합니다.
-5. AGX `config.yaml`의 `active_model: YYYYMMDD_이름`만 변경하고 추론 프로세스를 재시작합니다.
+5. AGX `config/model.yaml`의 `active_model: YYYYMMDD_이름`만 변경하고 추론 프로세스를 재시작합니다.
    이전 버전 폴더는 보존하십시오.
 6. 되돌리기: `PYTHON=python3 tools/rollback.sh YYYYMMDD_이전이름` 실행 후 프로세스 재시작.
    폴더·20장 검증 통과·검증 당시 파일 SHA256를 확인하고 **active_model 한 줄만** 원자적으로 바꿉니다.
@@ -200,9 +200,12 @@ TensorRT 정확도와 하드웨어 입력은 AGX에서 검증해야 합니다.
 
 `decision`의 ROI는 화면 비율 좌표이며 위험 비율의 분모는 ROI 픽셀 수입니다.
 위험 박스는 ROI와 픽셀 교집합이 있으면 반영합니다. 장애물 아래변이
-`1-obstacle_bottom_margin`보다 아래면 STOP입니다. 나머지 위험은 SLOW입니다.
+`decision.box_rules`의 `near_bottom_margin` 기준(`box 하단/H >= 1-margin`)에 해당하면
+`near_action`을 적용합니다. `segmentation_rules`는 ROI 비율의 엄격 초과(`>`) 조건입니다.
+규칙을 나열한 순서대로 이유를 추가하며 `action_priority`의 앞쪽 상태를 우선합니다.
 **모든 판단 기본값은 임시값, 현장 조정 필요**입니다. 시작 상태는 STOP,
-STOP은 즉시 적용하고 회복·기타 상태 변경에는 `stable_frames` 연속 판정이 필요합니다.
+STOP 확정에는 `stop_frames`(2) 연속 후보, STOP 해제에는 `go_frames`(8) 비STOP 연속 후보,
+그 외 변경에는 `stable_frames`(3) 같은 후보가 필요합니다.
 입력 타임아웃·읽기 오류·오래된 프레임·추론 오류에는 STOP JSON을 출력합니다.
 추론 오류는 STOP 출력 후 비영 종료하며 systemd 예시가 재시작하도록 구성했습니다.
 
@@ -217,6 +220,154 @@ UDP는 한 이벤트당 JSON 패킷 하나(최대 65507 bytes), ROS 판단은 St
 박스는 String JSON, 마스크는 mono8 Image(0/1/2)입니다. UDP 수신 보장은 없습니다.
 화면 서버가 없으면 display를 자동으로 끕니다. SIGINT/SIGTERM 시 STOP을 출력하고 정리합니다.
 `config/vision-model.service`는 수동 검토·경로 수정용 예시이며 설치하지 않았습니다.
+
+### 런타임 설정 키 표
+
+설정은 두 파일로 나눕니다. `config/model.yaml`은 AI(활성 버전·backend),
+`config/runtime.yaml`은 동작(입력·판단·거리·안정화·출력·감시) 설정입니다.
+모델 바꾸기 = model.yaml의 `active_model`, 판단 기준 바꾸기 = runtime.yaml의 `decision`입니다.
+`runtime.yaml`의 `model_config: config/model.yaml`은 **패키지 루트 기준** 상대 경로이며,
+절대 경로도 허용합니다. runtime.yaml의 위치나 실행 작업 디렉터리에 의존하지 않습니다.
+`backend.version: null`이면 같은 model.yaml의 active_model을 사용하며 명시한 버전은 우선합니다.
+루트 `config.yaml`은 학습 기록 전용입니다. deployment 블록도 실행 코드에서 읽지 않습니다.
+버전별 `weights/<버전>/model_config.yaml`·`postprocess.yaml`은 모델과 함께 유지합니다.
+옛 runtime.yaml의 `backend`·`active_model`은 model.yaml로 옮기고 model_config 키를 추가해야 합니다.
+구형 설정을 읽으면 이동 안내 오류로 거부합니다.
+모든 표의 키는 필수입니다. 빠지면 키 경로를 담은 오류로 I/O 전에 시작을 거부합니다.
+CLI 덮어쓰기도 완전한 YAML을 먼저 읽은 뒤 적용합니다. 옛 판단 키
+`non_drivable_stop`, `caution_slow`, `obstacle_bottom_margin`, `obstacle_class`,
+`slow_classes`는 명확한 마이그레이션 오류로 거부합니다.
+규칙 행의 `class`/`ratio_gt`/`action`/`reason`, 박스 근접 행의
+`near_bottom_margin`/`near_action`/`near_reason`, 거리 행의 `zone`도 필수입니다.
+빈 규칙 표(`[]`)는 해당 공간 규칙을 끕니다. 이유 문자열과 행 순서도 YAML에서 조정합니다.
+거리 기본값은 `enabled: false`, `pitch_deg: 0.0`입니다. 노지 평지 가정 거리와
+신뢰가 부족한 소실점 추정은 판단 근거로 쓰지 않습니다. ROS 입력 또는 발행 시
+`require_validated`를 강제하며 `policy_validated: false` 잠금을 유지합니다.
+글꼴·색·배치와 재생 단축키 단계 등 표시 스타일은 이번 외부화에서 제외합니다.
+
+#### config/model.yaml (AI)
+
+| 키 | 의미 / 임시 여부 | 단위 | 현재 값 |
+|---|---|---|---|
+| `active_model` | 사용할 가중치 버전 | 없음 | `20261113_s50` |
+| `backend.type` | torch/onnx/tensorrt; 운용값 | 없음 | `torch` |
+| `backend.device` | Torch 장치; 운용값 | 없음 | `cuda` |
+| `backend.provider` | ONNX 실행 공급자; 운용값 | 없음 | `CPUExecutionProvider` |
+| `backend.version` | 모델 버전명(null=활성 버전); 운용값 | 없음 | `null` |
+| `backend.threads` | Torch CPU 스레드 수 개; 임시값 | 없음 | `4` |
+| `backend.decode_threshold` | 검출 원시 후보 신뢰도 하한 비율(후처리 최저 임계 이하); 임시값 | 비율 | `0.1` |
+| `backend.advice` | 버전 YAML ADVICE가 있으면 조언 모델 적용 여부; 운용값 | 없음 | `true` |
+
+#### config/runtime.yaml (동작)
+
+| 키 | 의미 / 임시 여부 | 단위 | 현재 값 |
+|---|---|---|---|
+| `model_config` | AI 설정 파일; 패키지 루트 기준 상대 또는 절대 경로 | 없음 | `config/model.yaml` |
+| `source.type` | 입력 종류(v4l2/csi/rtsp/file/dir/ros2); 운용값 | 없음 | `v4l2` |
+| `source.uri` | 장치/영상/디렉터리 주소; 운용값 | 없음 | `/dev/video0` |
+| `source.width` | 요청 입력 폭 px; 임시값 | px | `1280` |
+| `source.height` | 요청 입력 높이 px; 임시값 | px | `720` |
+| `source.fps` | 요청 입력/디렉터리 재생 빈도 frame/s; 임시값 | frame/s | `30` |
+| `source.rotate` | 추론 전 시계방향 회전 deg(0/90/180/270); 운용값 | deg | `0` |
+| `source.speed` | 유한 입력 재생 배율; 운용값 | 없음 | `1.0` |
+| `source.latest_only` | 최신 프레임으로 대기 슬롯 교체 여부; 운용값 | 없음 | `true` |
+| `source.timeout_s` | 입력/추론/촬영 시각 유효 기한 s; 임시값 | s | `3.0` |
+| `source.backoff_s` | 재접속 초기 대기 s; 임시값 | s | `0.5` |
+| `source.backoff_max_s` | 재접속 최대 대기 s; 임시값 | s | `8.0` |
+| `source.limit` | 디렉터리 최대 영상 수 장(0=무제한); 운용값 | 없음 | `0` |
+| `source.csi_sensor` | CSI 센서 번호; 운용값 | 없음 | `0` |
+| `source.topic` | ROS 이미지 구독 토픽; 운용값 | 없음 | `/camera/image_raw` |
+| `source.buffer_size` | V4L2 캡처/CSI appsink 버퍼 frame; 임시값 | frame | `1` |
+| `source.ros2_qos.depth` | 구독 큐 길이 message; 임시값 | message | `1` |
+| `source.ros2_qos.reliability` | BEST_EFFORT/RELIABLE; 운용값 | 없음 | `BEST_EFFORT` |
+| `source.ros2_qos.history` | KEEP_LAST/KEEP_ALL; 운용값 | 없음 | `KEEP_LAST` |
+| `decision.policy_validated` | 현장 검증 완료 잠금(false 유지); 안전 잠금값 | 없음 | `false` |
+| `decision.require_validated` | 파일/로컬 기본 잠금 요구 여부(ROS 운용 시 무조건 true); 운용값 | 없음 | `false` |
+| `decision.roi` | ROI 꼭짓점 정규화 x/y 비율; 임시값 | 비율 | `[[0.35, 0.55], [0.65, 0.55], [0.95, 1.0], [0.05, 1.0]]` |
+| `decision.segmentation_rules[0].class` | 대상 마스크 클래스명; 모델 계약값 | 없음 | `non_drivable` |
+| `decision.segmentation_rules[0].ratio_gt` | 엄격 초과 임계 ROI 면적 비율; 임시값 | 비율 | `0.3` |
+| `decision.segmentation_rules[0].action` | 발동 후보 상태; 임시 정책값 | 없음 | `STOP` |
+| `decision.segmentation_rules[0].reason` | 발동 이유 문자열; 기존 출력 계약값 | 없음 | `non_drivable_roi` |
+| `decision.segmentation_rules[1].class` | 대상 마스크 클래스명; 모델 계약값 | 없음 | `caution` |
+| `decision.segmentation_rules[1].ratio_gt` | 엄격 초과 임계 ROI 면적 비율; 임시값 | 비율 | `0.2` |
+| `decision.segmentation_rules[1].action` | 발동 후보 상태; 임시 정책값 | 없음 | `SLOW` |
+| `decision.segmentation_rules[1].reason` | 발동 이유 문자열; 기존 출력 계약값 | 없음 | `caution_roi` |
+| `decision.box_rules[0].class` | 대상 검출 클래스명; 모델 계약값 | 없음 | `obstacle` |
+| `decision.box_rules[0].near_bottom_margin` | box 하단/H >= 1-margin이면 근접, 영상 높이 비율; 임시값 | 비율 | `0.2` |
+| `decision.box_rules[0].near_action` | 근접 조건 발동 후보; 임시 정책값 | 없음 | `STOP` |
+| `decision.box_rules[0].near_reason` | 근접 조건 이유 문자열; 기존 출력 계약값 | 없음 | `obstacle_near` |
+| `decision.box_rules[0].action` | 근접이 아닌 박스 후보; 임시 정책값 | 없음 | `SLOW` |
+| `decision.box_rules[0].reason` | 비근접 이유 문자열; 기존 출력 계약값 | 없음 | `obstacle_roi` |
+| `decision.box_rules[1].class` | 대상 검출 클래스명; 모델 계약값 | 없음 | `step` |
+| `decision.box_rules[1].action` | 발동 후보 상태; 임시 정책값 | 없음 | `SLOW` |
+| `decision.box_rules[1].reason` | 발동 이유 문자열; 기존 출력 계약값 | 없음 | `step_roi` |
+| `decision.box_rules[2].class` | 대상 검출 클래스명; 모델 계약값 | 없음 | `ditch_hole` |
+| `decision.box_rules[2].action` | 발동 후보 상태; 임시 정책값 | 없음 | `SLOW` |
+| `decision.box_rules[2].reason` | 발동 이유 문자열; 기존 출력 계약값 | 없음 | `ditch_hole_roi` |
+| `decision.box_rules[3].class` | 대상 검출 클래스명; 모델 계약값 | 없음 | `puddle` |
+| `decision.box_rules[3].action` | 발동 후보 상태; 임시 정책값 | 없음 | `SLOW` |
+| `decision.box_rules[3].reason` | 발동 이유 문자열; 기존 출력 계약값 | 없음 | `puddle_roi` |
+| `decision.geometry_rules[0].zone` | 대상 거리 구역; 임시 정책값 | 없음 | `stop` |
+| `decision.geometry_rules[0].action` | 발동 후보 상태; 임시 정책값 | 없음 | `STOP` |
+| `decision.geometry_rules[0].reason` | 발동 이유 문자열; 기존 출력 계약값 | 없음 | `geometry_stop` |
+| `decision.geometry_rules[1].zone` | 대상 거리 구역; 임시 정책값 | 없음 | `slow` |
+| `decision.geometry_rules[1].action` | 발동 후보 상태; 임시 정책값 | 없음 | `SLOW` |
+| `decision.geometry_rules[1].reason` | 발동 이유 문자열; 기존 출력 계약값 | 없음 | `geometry_slow` |
+| `decision.action_priority` | 앞쪽 상태 우선, 기본 후보 GO; 임시 정책값 | 없음 | `[STOP, SLOW, GO]` |
+| `decision.stable_frames` | STOP 외 상태의 변경에 필요한 같은 후보 연속 frame; 임시값 | frame | `3` |
+| `decision.stop_frames` | STOP 확정에 필요한 연속 frame; 임시값 | frame | `2` |
+| `decision.go_frames` | STOP 해제에 필요한 비STOP 연속 frame; 임시값 | frame | `8` |
+| `decision.segmentation_classes` | 마스크 ID 순 클래스명; 모델 계약값 | 없음 | `[drivable, caution, non_drivable]` |
+| `decision.box_classes` | 검출 ID 순 클래스명; 모델 계약값 | 없음 | `[step, ditch_hole, puddle, obstacle]` |
+| `geometry.enabled` | 거리 투영 사용 여부(기본 비활성); 임시값 | 없음 | `false` |
+| `geometry.method` | pinhole/table(table은 미보정 인터페이스); 임시값 | 없음 | `pinhole` |
+| `geometry.height_m` | 카메라 지면 높이 m; 임시값 | m | `0.275` |
+| `geometry.pitch_deg` | 정면 장착 pitch deg, 아래 방향 양수; 사용자 지정 임시값 | deg | `0.0` |
+| `geometry.horizontal_fov_deg` | 수평 FOV deg, 정사각 픽셀/중심 주점 가정; 임시값 | deg | `70.0` |
+| `geometry.max_range_m` | 지면 방사 거리 한계 m; 임시값 | m | `5.0` |
+| `geometry.robot_width_m` | 직진 로봇 폭 m; 사용자 제공 임시값 | m | `0.6` |
+| `geometry.margin_m` | 폭 양쪽 추가 여유 m; 임시값 | m | `0.15` |
+| `geometry.stop_length_m` | 원점부터 stop 구역 길이 m; 임시값 | m | `1.0` |
+| `geometry.slow_length_m` | 원점부터 slow 구역 끝 길이 m(stop 포함); 임시값 | m | `2.5` |
+| `geometry.affect_candidate` | 거리 구역을 판단 후보에 반영할지 여부; 기본 기록 전용 | 없음 | `false` |
+| `geometry.source` | 거리 가정 출처 문자열; 미보정 기록값 | 없음 | `front_facing_uncalibrated` |
+| `geometry.table` | 향후 [원본 행 비율, 전방 거리 m] 표, 행 증가/거리 감소; 임시값 | m | `[]` |
+| `stabilizer.enabled` | 박스 안정화 사용 여부; 임시값 | 없음 | `true` |
+| `stabilizer.iou_threshold` | 트랙 연결 IoU 하한 비율; 임시값 | 비율 | `0.3` |
+| `stabilizer.center_distance` | 평균 박스 대각선 대비 중심거리 상한 비율; 임시값 | 비율 | `0.5` |
+| `stabilizer.confirm_n` | 확인 관측 창 frame; 임시값 | frame | `3` |
+| `stabilizer.confirm_m` | 관측 창 안 최소 검출 횟수 frame; 임시값 | frame | `2` |
+| `stabilizer.hold_frames` | 미검출 트랙 유지 frame; 임시값 | frame | `2` |
+| `stabilizer.vote_frames` | 클래스 점수 투표 창 frame; 임시값 | frame | `5` |
+| `stabilizer.switch_frames` | 다른 클래스 우세 연속 frame; 임시값 | frame | `3` |
+| `sinks.json.enabled` | JSON 저장 여부; 운용값 | 없음 | `true` |
+| `sinks.json.path` | 저장 경로; 운용값 | 없음 | `outputs/runtime/results.jsonl` |
+| `sinks.udp.enabled` | UDP 전송 여부; 운용값 | 없음 | `false` |
+| `sinks.udp.host` | 목적지 주소; 운용값 | 없음 | `127.0.0.1` |
+| `sinks.udp.port` | 목적지 포트 번호; 운용값 | 없음 | `5005` |
+| `sinks.video.enabled` | 영상 저장 여부; 운용값 | 없음 | `false` |
+| `sinks.video.path` | 저장 경로; 운용값 | 없음 | `outputs/runtime/prediction.mp4` |
+| `sinks.video.fps` | 출력 빈도 frame/s; 임시값 | frame/s | `15` |
+| `sinks.video.width` | 출력 폭 px; 임시값 | px | `1280` |
+| `sinks.display.enabled` | 표시 여부; 운용값 | 없음 | `false` |
+| `sinks.display.width` | 창 시작 폭 px; 임시값 | px | `1280` |
+| `sinks.display.seek_seconds` | 좌우/상하 탐색 시간 s; 운용값 | s | `[5, 30]` |
+| `sinks.ros2.enabled` | ROS2 발행 여부; 운용값 | 없음 | `false` |
+| `sinks.ros2.decision_topic` | 판정 JSON 발행 토픽; 운용값 | 없음 | `/vision/decision` |
+| `sinks.ros2.mask_topic` | 마스크 발행 토픽; 운용값 | 없음 | `/vision/mask` |
+| `sinks.ros2.boxes_topic` | 박스 JSON 발행 토픽; 운용값 | 없음 | `/vision/boxes` |
+| `sinks.ros2.qos.decision.depth` | 발행 큐 길이 message; 임시값 | message | `10` |
+| `sinks.ros2.qos.decision.reliability` | RELIABLE/BEST_EFFORT; 운용값 | 없음 | `RELIABLE` |
+| `sinks.ros2.qos.decision.history` | KEEP_LAST/KEEP_ALL; 운용값 | 없음 | `KEEP_LAST` |
+| `sinks.ros2.qos.boxes.depth` | 발행 큐 길이 message; 임시값 | message | `10` |
+| `sinks.ros2.qos.boxes.reliability` | RELIABLE/BEST_EFFORT; 운용값 | 없음 | `RELIABLE` |
+| `sinks.ros2.qos.boxes.history` | KEEP_LAST/KEEP_ALL; 운용값 | 없음 | `KEEP_LAST` |
+| `sinks.ros2.qos.mask.depth` | 발행 큐 길이 message; 임시값 | message | `1` |
+| `sinks.ros2.qos.mask.reliability` | RELIABLE/BEST_EFFORT; 운용값 | 없음 | `RELIABLE` |
+| `sinks.ros2.qos.mask.history` | KEEP_LAST/KEEP_ALL; 운용값 | 없음 | `KEEP_LAST` |
+| `monitor.window` | 이동 평균 창 frame; 임시값 | frame | `30` |
+| `monitor.log_every` | 로그 간격 frame; 운용값 | frame | `30` |
+| `monitor.max_frames` | 처리 최대 frame(0=무제한); 운용값 | frame | `0` |
 
 ## ROS2 Jazzy 비전 연결 (기존 runtime 확장)
 
@@ -241,7 +392,8 @@ import yaml
 c = yaml.safe_load(Path('config/runtime.yaml').read_text())
 c['source']['type'] = 'ros2'
 c['sinks']['ros2']['enabled'] = True
-# CPU 검증 환경에서만 c['backend']['device'] = 'cpu'로 지정
+# CPU 검증 환경에서는 별도 model.yaml을 복사하고 backend.device를 cpu로 지정한 뒤
+# c['model_config']에 그 모델 설정 파일의 절대 경로를 지정
 Path('outputs/runtime').mkdir(parents=True, exist_ok=True)
 Path('outputs/runtime/ros2.yaml').write_text(yaml.safe_dump(c, sort_keys=False))
 PY
@@ -273,6 +425,44 @@ JSON을 새로 선택한 것이 아닙니다. `boxes`는 기존 시간축 안정
 입력 오류처럼 대응 프레임이 없는 이벤트의 header는 null입니다.
 `frame_age_ms`는 수신 전 지연과 로컬 대기·추론 시간을 합친 값입니다.
 `latency_ms`·`fps`는 기존 이동평균 계측을 계속 제공합니다.
+
+위험 박스마다 아래 지면 좌표를 추가합니다. `header.frame_id`는 계속 입력 카메라
+frame이며, 좌표의 frame은 `hazards_frame_id`와 각 hazard의 `frame_id`에
+`base_link`로 명시합니다(REP-103, x 앞+, y 왼쪽+, 단위 m).
+
+| 추가 필드 | 의미 |
+|---|---|
+| `geometry` | `calibrated: false`, `enabled`, `method`, `height_m`, `pitch_deg`, `source`; 현장 미보정 메타데이터 |
+| `hazards` | 안정화된 boxes와 같은 순서의 위험 요소 목록; 오류·시작·종료 이벤트는 빈 목록 |
+| `hazards[].class`, `score` | 기존 박스 클래스명과 신뢰도 |
+| `hazards[].x_m`, `y_m` | 박스 하단 중앙의 평지 투영 좌표; 신뢰 범위 밖이면 null |
+| `hazards[].left_y_m`, `right_y_m` | 영상 하단 변의 왼쪽·오른쪽 끝 투영 y; 회전 시 크기 순서가 아닐 수 있음 |
+| `hazards[].zone` | `stop`, `slow`, `none`; 박스 지면 구간과 경로 폭의 교집합으로 판정 |
+| `hazards[].range_valid`, `reason` | 중앙·양 끝 모두 유효할 때 true/null; 아니면 false와 `above_horizon`, `beyond_max_range`, `behind_robot`, `pixel_outside_image`, `invalid_pixel`, `geometry_disabled`, `table_not_calibrated` 등 |
+| `hazards_frame_id`, `hazards[].frame_id` | 지면 좌표 frame인 `base_link` |
+
+`config/runtime.yaml`의 `geometry`는 모두 임시값이며 현장 보정이 필요합니다.
+높이 0.275m, 로봇 폭 0.6m, 여유 0.15m, stop 길이 1m, slow 길이 2.5m를
+사용합니다. 두 구역 길이는 로봇 원점부터이며 stop이 우선합니다. 최대 지면 방사
+거리 5m를 넘는 투영은 null입니다. 구역은 직진 경로만 가정하며 선회 경로가 아닙니다.
+회전된 하단 변은 깊이가 달라질 수 있어 양 끝·중앙 중 가장 가까운 전방 거리를
+보수적으로 사용합니다. 끝점 하나라도 무효이면 구역은 none이며 안전함을 뜻하지 않습니다.
+
+핀홀은 roll/yaw/좌우·전후 오프셋 0, 평지, 왜곡 없는 렌즈를 가정합니다.
+pitch는 아래 방향 양수입니다. 원본 입력 raster 기준 FOV 또는
+`fx/fy/cx/cy/reference_width/reference_height` 전체를 지정하고, source.rotate는
+자동 역변환합니다. 영상 자체의 회전 메타데이터 보정 이후 raster가 기준입니다.
+`tools/estimate_horizon.py VIDEO... --output calibration_estimate.json`은 영상의
+선분 소실점을 수치 처리로 집계합니다. 화각 70°는 가정이며 영상 카메라 높이는 미상입니다.
+현재 pitch는 정면 장착에 맞춘 0.0°이며 거리 투영은 기본 비활성입니다.
+영상 proxy 소실점 추정은 분산이 커 기록용으로만 남기며 판단에 사용하지 않습니다.
+`geometry.method: table`은 향후 `[원본 행 비율, 전방 거리 m]`의 증가 행/감소 거리
+검사만 제공합니다. 횡방향 보정까지 정해지기 전에는 `table_not_calibrated`로 null을 냅니다.
+
+`geometry.affect_candidate: false`가 기본이므로 새 구역은 기록만 하고 기존
+candidate/decision은 유지합니다. true로 지정하면 미터 구역이 기존 ROI 판정에
+STOP/SLOW를 추가할 수 있습니다. 정책 미검증 잠금은 계속 적용되며,
+`calibrated`는 이 임시 구현에서 항상 false입니다. `/cmd_vel`은 발행하지 않습니다.
 
 정책은 기존 `config/runtime.yaml`의 임시값을 그대로 보존합니다.
 ROI는 [(0.35,0.55),(0.65,0.55),(0.95,1),(0.05,1)], ROI 내 non_drivable
@@ -343,6 +533,8 @@ GUI 재생, 기존 저장 옵션을 보존하면서 이 테스트에서 모델�
 MP4에 대응하는 GT가 없으면 GT 검증을 수행했다고 간주하지 않습니다.
 
 터미널마다 프로젝트 루트에서 ROS 환경과 기존 모델 Python 환경을 활성화하십시오.
+아래 outputs/runtime 설정은 이전 검증 기록입니다. 재사용하려면 backend를 model.yaml로
+옮기고 model_config를 추가하십시오(값은 보존).
 개발 PC에서 최종 통합 검증한 Torch CUDA 설정은 `outputs/runtime/ros2_video_cuda.yaml`입니다.
 ONNX CPU 부분 시험 설정은 `outputs/runtime/ros2_video_cpu.yaml`에 보존했습니다.
 활성 버전의 기존 seg.onnx/det.onnx를 사용하며 Torch/CUDA 운영 기본 설정은 변경하지 않습니다.
@@ -427,7 +619,7 @@ EOF와 Ctrl+C는 영상 발행기를 종료하지만, 비전 노드의 입력 ti
 
 ## ViT-S 조언 (ADVICE, 11-18)
 
-버전 폴더 `postprocess.yaml`에 `ADVICE: {thresh: 0.9, scale: 1.1, classes: [0,1,2,3]}`가 있으면, 검출 박스마다 crop 분류기(DINOv2-small ViT-S, crop_verifier 채택 M_all)로 판정합니다. 분류기가 박스와 다른 클래스를 0.9 이상 확신하면 그 박스를 지웁니다. 클래스·점수는 바꾸지 않습니다. 없으면 기존과 같습니다. 런타임 설정 `backend.advice: false`로도 끌 수 있습니다.
+버전 폴더 `postprocess.yaml`에 `ADVICE: {thresh: 0.9, scale: 1.1, classes: [0,1,2,3]}`가 있으면, 검출 박스마다 crop 분류기(DINOv2-small ViT-S, crop_verifier 채택 M_all)로 판정합니다. 분류기가 박스와 다른 클래스를 0.9 이상 확신하면 그 박스를 지웁니다. 클래스·점수는 바꾸지 않습니다. 없으면 기존과 같습니다. `config/model.yaml`의 `backend.advice: false`로도 끌 수 있습니다.
 
 - 버전: `weights/20261118_s50vit` (seg·det는 20261113_s50과 같은 파일, ADVICE만 추가)
 - 파일: `advice.json`(전처리 상수·출처 md5), `advice.ts`(torch 백엔드, transformers 불필요), `advice.onnx`(onnx 백엔드), `advice.fp16.engine`(tensorrt, AGX에서 `bash tools/build_trt.sh`가 정적 배치 8로 생성)

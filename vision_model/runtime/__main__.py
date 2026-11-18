@@ -14,30 +14,11 @@ import signal
 import time
 import cv2
 import numpy as np
-import yaml
 from .backends import Backend
 from .stabilizer import create_processors
 from .sources import Source
 from .sinks import Sinks
-
-
-# 런타임 설정 파일은 실행 시작 시 한 번만 읽는다.
-def load_config(path):
-    config = yaml.safe_load(Path(path).read_text())
-    source = config['source']
-    if source['type'] not in ('v4l2','csi','rtsp','file','dir','ros2'):
-        raise ValueError('unsupported source')
-    for key in ('fps','timeout_s','backoff_s','backoff_max_s','width','height'):
-        if source[key] <= 0:
-            raise ValueError('source.' + key + ' must be positive')
-    if config['monitor']['window'] < 1 or config['monitor']['log_every'] < 1:
-        raise ValueError('monitor window/log_every must be positive')
-    if config['sinks']['display'].get('width', 1280) <= 0:
-        raise ValueError('sinks.display.width must be positive')
-    seek = config['sinks']['display'].get('seek_seconds', [5, 30])
-    if len(seek) != 2 or any(not isinstance(v, (int, float)) or not np.isfinite(v) or v <= 0 for v in seek):
-        raise ValueError('sinks.display.seek_seconds must contain two positive values')
-    return config
+from .config import validate_runtime, load_config
 
 
 # 키 입력을 회전·배속·일시정지 상태로 변환한다.
@@ -66,8 +47,9 @@ def seek_seconds(key, intervals):
 
 # 종료·EOF·입력 오류를 구분하고 이동평균 계측을 출력한다.
 def run(config, progress=None, control=False):
+    validate_runtime(config)
     ros_mode = config['source']['type'] == 'ros2' or config['sinks']['ros2']['enabled']
-    processor_config = dict(config, decision=dict(config['decision'], require_validated=ros_mode))
+    processor_config = dict(config, decision=dict(config['decision'], require_validated=ros_mode or config['decision']['require_validated']))
     stabilizer, decision = create_processors(processor_config)
     sinks = Sinks(config['sinks'])
     source, backend = None, None
@@ -75,8 +57,8 @@ def run(config, progress=None, control=False):
     history = deque(maxlen=config['monitor']['window'])
     ticks = deque(maxlen=config['monitor']['window'])
     old_handlers = {}
-    rotate = config['source'].get('rotate', 0)
-    speed = config['source'].get('speed', 1.0)
+    rotate = config['source']['rotate']
+    speed = config['source']['speed']
     if rotate not in (0, 90, 180, 270) or not .25 <= speed <= 4 or not np.isfinite(speed):
         raise ValueError('source.rotate must be 0/90/180/270 and source.speed must be 0.25..4')
     finite = config['source']['type'] in ('file', 'dir')
@@ -117,7 +99,7 @@ def run(config, progress=None, control=False):
         nonlocal rotate, speed, paused, stopped, seek_generation
         if sys.platform.startswith("linux") and 0 <= key <= 0x1fffff:
             key &= 0xffff  # GTK includes X11 modifier flags above the keysym.
-        delta = seek_seconds(key, intervals or config['sinks']['display'].get('seek_seconds', [5, 30]))
+        delta = seek_seconds(key, intervals or config['sinks']['display']['seek_seconds'])
         sought = delta is not None and source.seek(frame, delta)
         if sought or key == ord('r') or key == ord(' '):
             with decision_lock:
@@ -165,8 +147,9 @@ def run(config, progress=None, control=False):
         return sought
 
     # 추론, 후처리, 판단을 한 작업으로 묶어 표시와 동시에 진행한다.
-    def infer_and_decide(image, generation, input_ms):
+    def infer_and_decide(image, generation, input_ms, image_rotate):
         result, stages = backend(image)
+        result['rotate'] = image_rotate
         if result['mask'].dtype != np.uint8 or result['mask'].shape != image.shape[:2] or not np.isin(result['mask'], (0, 1, 2)).all():
             raise ValueError('invalid segmentation mask')
         if not np.isfinite(result['mask']).all() or any(not np.isfinite(b).all() or not np.isfinite(s) for b, s, c in result['boxes']):
@@ -288,7 +271,7 @@ def run(config, progress=None, control=False):
                 continue
             try:
                 generation = seek_generation if prepared is None else prepared[1]
-                future = executor.submit(infer_and_decide, image, generation, input_ms) if prepared is None else prepared[0]
+                future = executor.submit(infer_and_decide, image, generation, input_ms, rotate) if prepared is None else prepared[0]
                 expired = False
                 while True:
                     try:
@@ -351,7 +334,7 @@ def run(config, progress=None, control=False):
                     if rotate:
                         next_image = cv2.rotate(next_image, {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}[rotate])
                     next_item = (next_frame, next_image, next_timestamp, next_captured, next_input_ms, next_header)
-                    prefetched = (next_kind, next_item, (executor.submit(infer_and_decide, next_image, seek_generation, next_input_ms), seek_generation))
+                    prefetched = (next_kind, next_item, (executor.submit(infer_and_decide, next_image, seek_generation, next_input_ms, rotate), seek_generation))
                 elif next_kind != 'waiting':
                     prefetched = (next_kind, next_item, None)
             if not emit(state, frame, timestamp, stages, image, result, age_ms=age):

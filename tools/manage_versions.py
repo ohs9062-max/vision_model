@@ -90,7 +90,7 @@ def update(name,seg,det,postprocess_baseline=False,postprocess_config=None):
     except BaseException as error:
         (target/'FAILED').write_text(f'{type(error).__name__}: {error}\n')
         raise
-    print(f'검증 통과: {target}\nactive_model 바꾸려면 config.yaml 수정 (자동 교체하지 않음)')
+    print(f'검증 통과: {target}\nactive_model 바꾸려면 config/model.yaml 수정 (자동 교체하지 않음)')
 
 # 검증 결과와 파일 해시를 확인하고 활성 버전을 변경한다.
 def rollback(version):
@@ -105,12 +105,12 @@ def rollback(version):
     for name,expected in hashes.items():
         if Path(name).name!=name or digest(folder/name,'sha256')!=expected: raise ValueError(f'Artifact changed: {name}')
     # 2) 활성 버전 한 줄을 원자적으로 변경하기
-    path=PACKAGE/'config.yaml'; original=path.read_text()
+    path=PACKAGE/'config/model.yaml'; original=path.read_text()
     lines=original.splitlines(keepends=True)
     matches=[i for i,line in enumerate(lines) if re.match(r'^active_model\s*:',line)]
     if len(matches)!=1: raise ValueError('Need exactly one top-level active_model')
     i=matches[0]; lines[i]=f'active_model: {version}\n'
-    temporary=path.with_name('config.yaml.tmp')
+    temporary=path.with_name('model.yaml.tmp')
     with temporary.open('x') as stream:
         stream.write(''.join(lines)); stream.flush(); os.fsync(stream.fileno())
     os.replace(temporary,path)

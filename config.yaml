@@ -1,3 +1,4 @@
+# 학습 기록 전용, 실행 설정은 config/model.yaml·config/runtime.yaml
 seg:
   task: segmentation
   model_variant: cspnext_seg
@@ -73,4 +74,3 @@ deployment:
   onnx_opset: 17
   det_nms_iou: 0.65
   max_detections: 300
-active_model: 20261113_s50

@@ -72,7 +72,7 @@ def run(path, out, backend, config, rotate, limit=0):
 
 def main():
     p=argparse.ArgumentParser(); p.add_argument('videos',nargs='+'); p.add_argument('--output',required=True); p.add_argument('--rotate',type=int,choices=(0,90,180,270)); a=p.parse_args()
-    config=load_config(ROOT/'config/runtime.yaml'); config['backend'].update(type='torch',device='cuda',version=None)
+    config=load_config(ROOT/'config/runtime.yaml'); config['backend'].update(type='torch',device='cuda')
     backend=Backend(config['backend'])
     try:
         for path in a.videos: run(path,Path(a.output),backend,config,a.rotate,int(os.environ.get('VISION_EXPORT_SMOKE_FRAMES','0')))

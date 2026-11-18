@@ -2,18 +2,25 @@
 from collections import deque
 import numpy as np
 from .decision import Decision
+from .config import require, number
 
 
 class Stabilizer:
     def __init__(self, config):
-        self.enabled = config.get('enabled', False)
-        self.iou = float(config.get('iou_threshold', 0.3))
-        self.distance = float(config.get('center_distance', 0.5))
-        self.n = int(config.get('confirm_n', 3))
-        self.m = int(config.get('confirm_m', 2))
-        self.hold = int(config.get('hold_frames', 2))
-        self.switch = int(config.get('switch_frames', 3))
-        self.vote = int(config.get('vote_frames', 5))
+        require(config, ('enabled', 'iou_threshold', 'center_distance', 'confirm_n', 'confirm_m', 'hold_frames', 'switch_frames', 'vote_frames'), 'stabilizer')
+        if type(config['enabled']) is not bool:
+            raise ValueError('stabilizer.enabled must be boolean')
+        for key in ('iou_threshold', 'center_distance', 'confirm_n', 'confirm_m', 'hold_frames', 'switch_frames', 'vote_frames'):
+            number(config[key], 'stabilizer.' + key, minimum=0,
+                   integer=key not in ('iou_threshold', 'center_distance'))
+        self.enabled = config['enabled']
+        self.iou = config['iou_threshold']
+        self.distance = config['center_distance']
+        self.n = config['confirm_n']
+        self.m = config['confirm_m']
+        self.hold = config['hold_frames']
+        self.switch = config['switch_frames']
+        self.vote = config['vote_frames']
         if not 0 <= self.iou <= 1 or self.distance < 0 or not 1 <= self.m <= self.n or self.hold < 0 or min(self.switch, self.vote) < 1:
             raise ValueError('invalid stabilizer configuration')
         self.tracks = []
@@ -48,9 +55,9 @@ class Stabilizer:
             t['votes'].append((cls, score))
             totals = {}
             for c, s in t['votes']:
-                totals[c] = totals.get(c, 0) + s
+                totals[c] = (totals[c] if c in totals else 0) + s
             winner = max(totals, key=totals.get)
-            if winner != t['class'] and totals[winner] > totals.get(t['class'], 0):
+            if winner != t['class'] and totals[winner] > (totals[t['class']] if t['class'] in totals else 0):
                 if t['challenger'] == winner:
                     t['streak'] += 1
                 else:
@@ -73,4 +80,5 @@ class Stabilizer:
 
 
 def create_processors(config):
-    return Stabilizer(config.get('stabilizer', {})), Decision(config['decision'])
+    require(config, ('stabilizer', 'decision', 'geometry'), 'runtime')
+    return Stabilizer(config['stabilizer']), Decision(dict(config['decision'], geometry=config['geometry']))

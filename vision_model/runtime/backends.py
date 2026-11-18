@@ -156,7 +156,7 @@ def decode_detector_gpu(logits, distances, priors, input_size, conf_threshold):
 
 class TensorRTPredictor:
     # build_trt.sh의 버전별 seg.fp16.engine·det.fp16.engine을 연다.
-    def __init__(self, version=None):
+    def __init__(self, version=None, *, decode_threshold):
         try:
             import tensorrt as trt
 
@@ -172,7 +172,7 @@ class TensorRTPredictor:
             raise RuntimeError("TensorRT 10 required; installed " + trt.__version__)
         self.version_dir, self.config, post = load_version(version=version)
         self.postprocessor = Postprocessor(post)
-        self.decode_threshold = 0.10
+        self.decode_threshold = decode_threshold
         self.engines = {}
         try:
             for k in ("seg", "det"):
@@ -274,10 +274,10 @@ class Backend:
                 provider=config["provider"], version=config["version"]
             )
         elif kind == "tensorrt":
-            self.predictor = TensorRTPredictor(version=config["version"])
+            self.predictor = TensorRTPredictor(version=config["version"], decode_threshold=config["decode_threshold"])
         else:
             raise ValueError("unknown backend: " + kind)
-        threshold = float(config.get("decode_threshold", 0.10))
+        threshold = float(config["decode_threshold"])
         if (
             not 0
             <= threshold
@@ -293,7 +293,7 @@ class Backend:
         # 11-18 ADVICE: 버전 postprocess.yaml에 ADVICE가 있으면 ViT-S 조언(L2)을 검출 결과에 적용
         self.advisor = None
         advice = self.predictor.postprocessor.config.get("ADVICE")
-        if advice and config.get("advice", True):
+        if advice and config["advice"]:
             from ..advice import Advisor
 
             self.advisor = Advisor(self.predictor.version_dir, advice, kind)

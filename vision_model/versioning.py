@@ -132,7 +132,9 @@ def validate_postprocess(config):
 def load_version(package=None, version=None):
     package = Path(package or Path(__file__).resolve().parents[1])
     if version is None:
-        version = yaml.safe_load((package / "config.yaml").read_text())["active_model"]
+        from .runtime.config import load_model_config
+
+        version = load_model_config(package / "config/model.yaml")["active_model"]
     folder = version_dir(package, version)
     model = yaml.safe_load((folder / "model_config.yaml").read_text())
     post = validate_postprocess(

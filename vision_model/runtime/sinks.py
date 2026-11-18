@@ -6,6 +6,7 @@ from pathlib import Path
 import socket
 import cv2
 from ..draw import draw
+from .config import make_qos
 
 
 class Sinks:
@@ -36,16 +37,16 @@ class Sinks:
                 rclpy.init(context=self.context)
                 self.node = rclpy.create_node('vision_output', context=self.context)
                 c = config['ros2']
-                self.pub_decision = self.node.create_publisher(String, c['decision_topic'], 10)
-                self.pub_boxes = self.node.create_publisher(String, c['boxes_topic'], 10)
-                self.pub_mask = self.node.create_publisher(Image, c['mask_topic'], 1)
+                self.pub_decision = self.node.create_publisher(String, c['decision_topic'], make_qos(c['qos']['decision']))
+                self.pub_boxes = self.node.create_publisher(String, c['boxes_topic'], make_qos(c['qos']['boxes']))
+                self.pub_mask = self.node.create_publisher(Image, c['mask_topic'], make_qos(c['qos']['mask']))
         except Exception:
             self.close()
             raise
 
     # 표시 창을 만들고 현재 영상 비율로 시작 크기를 적용한다.
     def resize_window(self, shape):
-        width = self.c['display'].get('width', 1280)
+        width = self.c['display']['width']
         height = max(1, round(shape[0] * width / shape[1]))
         if not self.window_open:
             cv2.namedWindow('vision runtime', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)

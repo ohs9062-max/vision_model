@@ -1,56 +1,130 @@
-# 판단값은 모두 임시값, 현장 조정 필요. 로봇 제동·시야 사양 확정 후 검증한다.
-source:
-  type: v4l2
-  uri: /dev/video0
-  width: 1280
-  height: 720
-  fps: 30
-  rotate: 0
-  speed: 1.0
-  latest_only: true
-  timeout_s: 3.0
-  backoff_s: 0.5
-  backoff_max_s: 8.0
-  limit: 0
-  csi_sensor: 0
-  topic: /camera/image_raw
-backend:
-  type: torch
-  device: cuda
-  provider: CPUExecutionProvider
-  version: null
-  threads: 4
-  decode_threshold: 0.10
-decision:
-  # ROS2 출력은 현장 정책 검증 전 STOP/policy_unvalidated로 제한한다.
-  policy_validated: false
-  roi: [[0.35, 0.55], [0.65, 0.55], [0.95, 1.0], [0.05, 1.0]]
-  non_drivable_stop: 0.30
-  caution_slow: 0.20
-  obstacle_bottom_margin: 0.20
-  stable_frames: 3
-  stop_frames: 2
-  go_frames: 8
-  segmentation_classes: [drivable, caution, non_drivable]
-  box_classes: [step, ditch_hole, puddle, obstacle]
-  obstacle_class: obstacle
-  slow_classes: [step, ditch_hole, puddle]
-stabilizer:
-  enabled: true
-  iou_threshold: 0.3
-  center_distance: 0.5
-  confirm_n: 3
-  confirm_m: 2
-  hold_frames: 2
-  vote_frames: 5
-  switch_frames: 3
-sinks:
-  json: {enabled: true, path: outputs/runtime/results.jsonl}
-  udp: {enabled: false, host: 127.0.0.1, port: 5005}
-  video: {enabled: false, path: outputs/runtime/prediction.mp4, fps: 15, width: 1280}
-  display: {enabled: false, width: 1280, seek_seconds: [5, 30]}
-  ros2: {enabled: false, decision_topic: /vision/decision, mask_topic: /vision/mask, boxes_topic: /vision/boxes}
-monitor:
-  window: 30
-  log_every: 30
-  max_frames: 0
+# [동작 설정] 카메라 입력 → 판단 → 출력까지 로봇 동작 관련 값. 모델·가중치는 config/model.yaml
+# 키가 빠지면 시작 시 오류로 멈춘다(기본값 없음).
+model_config: config/model.yaml  # AI 설정 파일 위치
+# 판단·안정화·거리 값은 현장 검증 전 임시값이다. policy_validated 잠금 유지.
+source:  # [입력] 카메라·영상·ROS 토픽에서 프레임을 받는 방법
+  type: v4l2  # 입력 종류(v4l2/csi/rtsp/file/dir/ros2); 운용값
+  uri: /dev/video0  # 장치/영상/디렉터리 주소; 운용값
+  width: 1280  # 요청 입력 폭 px; 임시값
+  height: 720  # 요청 입력 높이 px; 임시값
+  fps: 30  # 요청 입력/디렉터리 재생 빈도 frame/s; 임시값
+  rotate: 0  # 추론 전 시계방향 회전 deg(0/90/180/270); 운용값
+  speed: 1.0  # 유한 입력 재생 배율; 운용값
+  latest_only: true  # 최신 프레임으로 대기 슬롯 교체 여부; 운용값
+  timeout_s: 3.0  # 입력/추론/촬영 시각 유효 기한 s; 임시값
+  backoff_s: 0.5  # 재접속 초기 대기 s; 임시값
+  backoff_max_s: 8.0  # 재접속 최대 대기 s; 임시값
+  limit: 0  # 디렉터리 최대 영상 수 장(0=무제한); 운용값
+  csi_sensor: 0  # CSI 센서 번호; 운용값
+  topic: /camera/image_raw  # ROS 이미지 구독 토픽; 운용값
+  buffer_size: 1  # V4L2 캡처/CSI appsink 버퍼 frame; 임시값
+  ros2_qos:  # ROS 구독 QoS 설정; 단위 없음, 운용값
+    depth: 1  # 구독 큐 길이 message; 임시값
+    reliability: BEST_EFFORT  # BEST_EFFORT/RELIABLE; 운용값
+    history: KEEP_LAST  # KEEP_LAST/KEEP_ALL; 운용값
+decision:  # [판단] GO/SLOW/STOP 규칙 표와 전환에 필요한 연속 프레임 수 (임시값)
+  policy_validated: false  # 현장 검증 완료 잠금(false 유지); 안전 잠금값
+  require_validated: false  # 파일/로컬 기본 잠금 요구 여부(ROS 운용 시 무조건 true); 운용값
+  roi: [[0.35, 0.55], [0.65, 0.55], [0.95, 1.0], [0.05, 1.0]]  # ROI 꼭짓점 정규화 x/y 비율; 임시값
+  segmentation_rules:  # ROI 픽셀 비율 > ratio_gt이면 적용, 나열 순서대로 reason 추가; 임시값
+    - class: non_drivable  # 대상 마스크 클래스명; 모델 계약값
+      ratio_gt: 0.30  # 엄격 초과 임계 ROI 면적 비율; 임시값
+      action: STOP  # 발동 후보 상태; 임시 정책값
+      reason: non_drivable_roi  # 발동 이유 문자열; 기존 출력 계약값
+    - class: caution  # 대상 마스크 클래스명; 모델 계약값
+      ratio_gt: 0.20  # 엄격 초과 임계 ROI 면적 비율; 임시값
+      action: SLOW  # 발동 후보 상태; 임시 정책값
+      reason: caution_roi  # 발동 이유 문자열; 기존 출력 계약값
+  box_rules:  # ROI와 겹치는 박스마다 나열 순서대로 적용; 임시값
+    - class: obstacle  # 대상 검출 클래스명; 모델 계약값
+      near_bottom_margin: 0.20  # box 하단/H >= 1-margin이면 근접, 영상 높이 비율; 임시값
+      near_action: STOP  # 근접 조건 발동 후보; 임시 정책값
+      near_reason: obstacle_near  # 근접 조건 이유 문자열; 기존 출력 계약값
+      action: SLOW  # 근접이 아닌 박스 후보; 임시 정책값
+      reason: obstacle_roi  # 비근접 이유 문자열; 기존 출력 계약값
+    - class: step  # 대상 검출 클래스명; 모델 계약값
+      action: SLOW  # 발동 후보 상태; 임시 정책값
+      reason: step_roi  # 발동 이유 문자열; 기존 출력 계약값
+    - class: ditch_hole  # 대상 검출 클래스명; 모델 계약값
+      action: SLOW  # 발동 후보 상태; 임시 정책값
+      reason: ditch_hole_roi  # 발동 이유 문자열; 기존 출력 계약값
+    - class: puddle  # 대상 검출 클래스명; 모델 계약값
+      action: SLOW  # 발동 후보 상태; 임시 정책값
+      reason: puddle_roi  # 발동 이유 문자열; 기존 출력 계약값
+  geometry_rules:  # 거리 사용을 명시적으로 켰을 때 적용하는 구역 규칙; 임시값
+    - zone: stop  # 대상 거리 구역; 임시 정책값
+      action: STOP  # 발동 후보 상태; 임시 정책값
+      reason: geometry_stop  # 발동 이유 문자열; 기존 출력 계약값
+    - zone: slow  # 대상 거리 구역; 임시 정책값
+      action: SLOW  # 발동 후보 상태; 임시 정책값
+      reason: geometry_slow  # 발동 이유 문자열; 기존 출력 계약값
+  action_priority: [STOP, SLOW, GO]  # 앞쪽 상태 우선, 기본 후보 GO; 임시 정책값
+  stable_frames: 3  # STOP 외 상태의 변경에 필요한 같은 후보 연속 frame; 임시값
+  stop_frames: 2  # STOP 확정에 필요한 연속 frame; 임시값
+  go_frames: 8  # STOP 해제에 필요한 비STOP 연속 frame; 임시값
+  segmentation_classes: [drivable, caution, non_drivable]  # 마스크 ID 순 클래스명; 모델 계약값
+  box_classes: [step, ditch_hole, puddle, obstacle]  # 검출 ID 순 클래스명; 모델 계약값
+# 노지 평지 가정 거리는 판단 근거가 아니다. 정면 장착이며 영상 소실점 추정은 신뢰 부족으로 기록만 한다.
+geometry:  # [거리] 화면→지면 m 변환. 평지 가정이라 기본 꺼짐, 기록용 (임시값)
+  enabled: false  # 거리 투영 사용 여부(기본 비활성); 임시값
+  method: pinhole  # pinhole/table(table은 미보정 인터페이스); 임시값
+  height_m: 0.275  # 카메라 지면 높이 m; 임시값
+  pitch_deg: 0.0  # 정면 장착 pitch deg, 아래 방향 양수; 사용자 지정 임시값
+  horizontal_fov_deg: 70.0  # 수평 FOV deg, 정사각 픽셀/중심 주점 가정; 임시값
+  # 실측 시 fx/fy/cx/cy(px), reference_width/reference_height(px)를 전부 지정하여 FOV 대체(선택, 미보정).
+  max_range_m: 5.0  # 지면 방사 거리 한계 m; 임시값
+  robot_width_m: 0.6  # 직진 로봇 폭 m; 사용자 제공 임시값
+  margin_m: 0.15  # 폭 양쪽 추가 여유 m; 임시값
+  stop_length_m: 1.0  # 원점부터 stop 구역 길이 m; 임시값
+  slow_length_m: 2.5  # 원점부터 slow 구역 끝 길이 m(stop 포함); 임시값
+  affect_candidate: false  # 거리 구역을 판단 후보에 반영할지 여부; 기본 기록 전용
+  source: front_facing_uncalibrated  # 거리 가정 출처 문자열; 미보정 기록값
+  table: []  # 향후 [원본 행 비율, 전방 거리 m] 표, 행 증가/거리 감소; 임시값
+stabilizer:  # [안정화] 박스 깜빡임 억제: 몇 프레임 보여야 확정·유지할지 (임시값)
+  enabled: true  # 박스 안정화 사용 여부; 임시값
+  iou_threshold: 0.3  # 트랙 연결 IoU 하한 비율; 임시값
+  center_distance: 0.5  # 평균 박스 대각선 대비 중심거리 상한 비율; 임시값
+  confirm_n: 3  # 확인 관측 창 frame; 임시값
+  confirm_m: 2  # 관측 창 안 최소 검출 횟수 frame; 임시값
+  hold_frames: 2  # 미검출 트랙 유지 frame; 임시값
+  vote_frames: 5  # 클래스 점수 투표 창 frame; 임시값
+  switch_frames: 3  # 다른 클래스 우세 연속 frame; 임시값
+sinks:  # [출력] 결과를 내보낼 곳: JSON 파일, UDP, 영상, 화면, ROS 토픽
+  json:  # JSON Lines 출력; 운용값
+    enabled: true  # JSON 저장 여부; 운용값
+    path: outputs/runtime/results.jsonl  # 저장 경로; 운용값
+  udp:  # UDP 출력; 운용값
+    enabled: false  # UDP 전송 여부; 운용값
+    host: 127.0.0.1  # 목적지 주소; 운용값
+    port: 5005  # 목적지 포트 번호; 운용값
+  video:  # 표시용 영상 저장; 운용값
+    enabled: false  # 영상 저장 여부; 운용값
+    path: outputs/runtime/prediction.mp4  # 저장 경로; 운용값
+    fps: 15  # 출력 빈도 frame/s; 임시값
+    width: 1280  # 출력 폭 px; 임시값
+  display:  # 화면 표시; 운용값
+    enabled: false  # 표시 여부; 운용값
+    width: 1280  # 창 시작 폭 px; 임시값
+    seek_seconds: [5, 30]  # 좌우/상하 탐색 시간 s; 운용값
+  ros2:  # ROS2 발행 설정; 운용값
+    enabled: false  # ROS2 발행 여부; 운용값
+    decision_topic: /vision/decision  # 판정 JSON 발행 토픽; 운용값
+    mask_topic: /vision/mask  # 마스크 발행 토픽; 운용값
+    boxes_topic: /vision/boxes  # 박스 JSON 발행 토픽; 운용값
+    qos:  # 토픽별 publisher QoS; 운용값
+      decision:  # 판정 발행 QoS; 운용값
+        depth: 10  # 발행 큐 길이 message; 임시값
+        reliability: RELIABLE  # RELIABLE/BEST_EFFORT; 운용값
+        history: KEEP_LAST  # KEEP_LAST/KEEP_ALL; 운용값
+      boxes:  # 박스 발행 QoS; 운용값
+        depth: 10  # 발행 큐 길이 message; 임시값
+        reliability: RELIABLE  # RELIABLE/BEST_EFFORT; 운용값
+        history: KEEP_LAST  # KEEP_LAST/KEEP_ALL; 운용값
+      mask:  # 마스크 발행 QoS; 운용값
+        depth: 1  # 발행 큐 길이 message; 임시값
+        reliability: RELIABLE  # RELIABLE/BEST_EFFORT; 운용값
+        history: KEEP_LAST  # KEEP_LAST/KEEP_ALL; 운용값
+monitor:  # [감시] FPS·지연 로그 주기, 처리 프레임 상한
+  window: 30  # 이동 평균 창 frame; 임시값
+  log_every: 30  # 로그 간격 frame; 운용값
+  max_frames: 0  # 처리 최대 frame(0=무제한); 운용값
