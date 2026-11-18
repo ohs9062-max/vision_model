@@ -1,8 +1,8 @@
 DET_THRESH: 0.25
-POST_THRESH:
-  0: 0.5
-  1: 0.5
-  2: 0.7
+POST_THRESH:  # 11-18 robot3 ./video.sh 배포 임계와 맞춤(robot_vision3_autolabel tools/robot3_postprocess_override.yaml, 11-16 재현율 우선). 조언 효과도 이 임계에서 측정
+  0: 0.25
+  1: 0.2
+  2: 0.35
   3: 0.3
 MERGE_CLASSES:
 - 0

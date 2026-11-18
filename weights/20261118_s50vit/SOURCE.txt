@@ -3,3 +3,4 @@ base_version: 20261113_s50 (seg.pt·det.pt·onnx 하드링크, 같은 파일)
 postprocess: 20261113_s50/postprocess.yaml + ADVICE(ViT-S 조언 L2, thresh .9, scale 1.1)
 advice_source: /home/hs/rang/crop_verifier/outputs/adopted_M_20261112/M_all.pt
 advice_basis: robot3 생성물/mall_attach_20261118/advice/match_report.md, vit_advice_deploy_20261118/report.md
+POST_THRESH: robot3 override와 같게 step .25·ditch .20·puddle .35·obstacle .30 (20261113_s50은 .5/.5/.7/.3)
