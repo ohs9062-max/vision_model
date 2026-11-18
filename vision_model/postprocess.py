@@ -18,6 +18,9 @@ def _hull(bs):
 
 
 def _union_area(bs):
+    # 11-18 박스 많을 때 끊김(원시 후보 300개에서 프레임당 1.3s, 시간의 97%): 박스가 많으면 같은 면적을 numpy 격자로 계산
+    if len(bs) > 16:
+        return _union_area_np(bs)
     xs = sorted({b[0] for b in bs} | {b[2] for b in bs})
     total = 0.0
     for x0, x1 in zip(xs, xs[1:]):
@@ -30,11 +33,27 @@ def _union_area(bs):
     return total
 
 
+def _union_area_np(bs):
+    """_union_area와 같은 합집합 면적(좌표 압축 격자 + 2차원 누적합). 값은 부동소수 덧셈 순서만 다르다."""
+    b = np.asarray([[float(v) for v in q[:4]] for q in bs], dtype=np.float64)
+    b = b[(b[:, 2] > b[:, 0]) & (b[:, 3] > b[:, 1])]
+    if not len(b):
+        return 0.0
+    xs, ys = np.unique(b[:, [0, 2]]), np.unique(b[:, [1, 3]])
+    xi0, xi1 = np.searchsorted(xs, b[:, 0]), np.searchsorted(xs, b[:, 2])
+    yi0, yi1 = np.searchsorted(ys, b[:, 1]), np.searchsorted(ys, b[:, 3])
+    d = np.zeros((len(xs) + 1, len(ys) + 1), np.int32)
+    np.add.at(d, (xi0, yi0), 1); np.add.at(d, (xi1, yi0), -1); np.add.at(d, (xi0, yi1), -1); np.add.at(d, (xi1, yi1), 1)
+    cov = d.cumsum(0).cumsum(1)[:-2, :-2] > 0
+    return float(np.diff(xs) @ cov @ np.diff(ys))
+
+
 def greedy_merge_groups(items, width, height, gap=0.0, fill=0.5, cap=0.25):
     rest = sorted(items, key=lambda d: -d[1])
     groups = []
     while rest:
         group = [rest.pop(0)]
+        ug = [_union_area([group[0][0]])]  # 그룹 합집합 면적(누적)
         changed = True
         while changed:
             changed = False
@@ -51,9 +70,17 @@ def greedy_merge_groups(items, width, height, gap=0.0, fill=0.5, cap=0.25):
                 hull_area = (h[2] - h[0]) * (h[3] - h[1])
                 if hull_area > cap * width * height and hull_area > max((b[2] - b[0]) * (b[3] - b[1]) for b in nb):
                     continue
-                if hull_area > 0 and _union_area(nb) / hull_area < fill:
-                    continue
+                union = None
+                if hull_area > 0:
+                    # 11-18 속도(박스 많을 때 끊김): 합집합(그룹+d) = 그룹 합집합 + d 면적 − (d 안으로 자른 그룹 박스들의 합집합). 수학적으로 같은 값
+                    a = d[0]
+                    clipped = [[max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])] for b in bs]
+                    clipped = [c for c in clipped if c[2] > c[0] and c[3] > c[1]]
+                    union = ug[0] + (a[2] - a[0]) * (a[3] - a[1]) - (_union_area(clipped) if clipped else 0.0)
+                    if union / hull_area < fill:
+                        continue
                 group.append(d)
+                ug[0] = union if union is not None else _union_area(nb)
                 rest.remove(d)
                 changed = True
         groups.append(group)
